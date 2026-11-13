@@ -1,0 +1,35 @@
+# Rust build outputs, including per-crate and agent target directories
+target/
+/dist/
+
+# Locally packaged YouCraft development executable
+/bin/
+
+# Local plans and agent worktrees
+plan/
+.claude/worktrees/
+.codex/worktrees/
+
+# Local logs and profiling output
+/log/
+*.log
+*.profraw
+*.profdata
+
+# Local credentials and environment overrides (keep shareable examples)
+/.aws/
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Editor, operating-system, and Python cache files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+
