@@ -22,7 +22,7 @@ workspace_version() {
   return 0
 }
 
-VERSION="${FILMCRAFT_VERSION:-$(workspace_version)}"
+VERSION="${YOUCRAFT_VERSION:-${FILMCRAFT_VERSION:-$(workspace_version)}}"
 if [[ -z "$VERSION" ]]; then
   echo "error: could not read [workspace.package] version from $ROOT/Cargo.toml" >&2
   exit 1
@@ -53,6 +53,10 @@ copy_docs() {
   for f in README.md LICENSE LICENSE-MIT LICENSE-APACHE COPYRIGHT NOTICE; do
     if [[ -f "$ROOT/$f" ]]; then cp "$ROOT/$f" "$dest/"; fi
   done
+  cp "$ROOT/ATTRIBUTION.md" "$dest/"
+  mkdir -p "$dest/licenses"
+  cp "$ROOT"/assets/fonts/OFL-*.txt "$dest/licenses/"
+  cp "$ROOT"/docs/licenses/*.txt "$dest/licenses/"
   copy_font_licences "$dest"
   return 0
 }

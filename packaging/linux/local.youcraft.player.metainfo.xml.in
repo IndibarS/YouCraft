@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>local.youcraft.player</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>YouCraft</name>
+  <summary>Watch and organize local videos</summary>
+  <developer id="local.youcraft"><name>YouCraft contributors</name></developer>
+  <description>
+    <p>YouCraft is a native local video player based on the FilmCraft engine, with a searchable library and flexible viewing controls.</p>
+    <p>Browse a searchable video library, reuse local thumbnails, choose audio and subtitle tracks,
+    and keep watching in a floating miniplayer. Codec compatibility varies with the source file.</p>
+  </description>
+  <launchable type="desktop-id">local.youcraft.player.desktop</launchable>
+  <icon type="stock">local.youcraft.player</icon>
+  <categories><category>AudioVideo</category><category>Video</category><category>Player</category></categories>
+  <supports><control>keyboard</control><control>pointing</control></supports>
+  <provides><binary>youcraft</binary><mediatype>application/x-filmcraft</mediatype></provides>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="@VERSION@" date="@DATE@"/></releases>
+</component>

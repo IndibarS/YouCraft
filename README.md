@@ -16,6 +16,8 @@ The launcher uses `bin/youcraft` when present. To build from source, install Rus
 cargo +1.95.0 run -p filmcraft --bin youcraft
 ```
 
+For DEB, RPM, AppImage, tarball, and Flatpak builds, see the [packaging guide](packaging/README.md).
+
 ## Watching videos
 
 - **Open videos** or drop local files into the window. Click a thumbnail to watch.

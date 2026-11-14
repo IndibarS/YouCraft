@@ -156,3 +156,21 @@ Validation: 28 player/poster/cache/search tests pass, plus the miniplayer render
 Focused native/UI/media Clippy, workspace formatting, dependency layers, asset attribution,
 and native build passed. The rendered miniplayer was inspected and the local launcher binary
 updated. Full workspace CI and other native platforms were not checked in this pass.
+
+## Linux packaging — 2026-11-14
+
+Adapted the inherited Crafting Apps pipeline to YouCraft: one staged tree for nFPM DEB/RPM,
+AppImage and tarball outputs, with the Flatpak bundle consuming the tarball. Package executables
+are named `youcraft` and `youcraft-cli`; Cargo package names remain unchanged. Desktop metadata
+matches `local.youcraft.player`, notices include rav1d and bundled fonts, and AppImage updates
+require an explicit fork repository. DEB/RPM glibc dependencies are measured from the binaries.
+
+The optimized release build passed and produced all four Linux artifacts in `dist/release`.
+Package metadata and required license files were inspected. The extracted DEB executable,
+tarball installation under a temporary path containing spaces, and AppImage all passed version
+smoke checks. Desktop metadata validation, shell syntax, invalid-argument checks, dependency
+layers, assets, and local documentation links passed. No system-wide installation was performed.
+
+These x86_64 packages require glibc 2.43. The installed Flatpak 25.08 runtime provides 2.42, so a
+compatible older-host build is needed; no Flatpak artifact was validated. Windows/macOS and full
+workspace CI were not tested. See the [packaging guide](../packaging/README.md) for commands.

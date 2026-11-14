@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=YouCraft
+GenericName=Video Player
+Comment=Watch and organize local videos
+Exec=youcraft %F
+TryExec=youcraft
+Icon=local.youcraft.player
+Terminal=false
+StartupNotify=true
+StartupWMClass=local.youcraft.player
+Categories=AudioVideo;Video;Player;
+MimeType=application/x-filmcraft;video/mp4;video/x-m4v;video/quicktime;video/x-matroska;video/webm;video/vnd.avi;video/x-msvideo;video/mp2t;video/mpeg;video/3gpp;
+Keywords=video;player;movies;library;

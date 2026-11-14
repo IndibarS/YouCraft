@@ -1,5 +1,9 @@
 # Releasing FilmCraft
 
+> For this fork, follow the [YouCraft packaging guide](../packaging/README.md). The release
+> infrastructure and publishing instructions below describe upstream FilmCraft and are not
+> configured as YouCraft release automation.
+
 Every push to the `release` branch runs `.github/workflows/release.yml`. The workflow builds
 installers for macOS, Windows, Linux (AppImage, deb, rpm, tarball, Flatpak) and FreeBSD, plus
 the web build, and creates or updates a **draft**

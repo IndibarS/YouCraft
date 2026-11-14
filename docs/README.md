@@ -9,6 +9,7 @@ those features are exposed in the player.
 | [User guide and source layout](../README.md) | Launching, controls, module ownership, and current limitations |
 | [Validation history](YOUCRAFT.md) | Dated checks and platform/codec limits; older entries are historical |
 | [Contributor guide](../CONTRIBUTING.md) | Rules and development entry points |
+| [Packaging](../packaging/README.md) | Linux package formats, prerequisites, and install commands |
 | [Setup and build](contributing.md) | Toolchain, dependencies, and quality gates |
 | [Architecture](architecture.md) | Shared workspace layers and engine design |
 | [Testing](testing.md) | Player regressions and inherited test conventions |
