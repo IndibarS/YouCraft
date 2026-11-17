@@ -51,6 +51,7 @@ The formatter uses 160-column lines and `use_small_heuristics = "Max"`.
 | `crates/ui-egui/src/player.rs` | Player state, shell, watch view, and playback controls |
 | `crates/ui-egui/src/player/library.rs` | Library persistence, missing-file cleanup, and discovered-file imports |
 | `crates/ui-egui/src/player/tracks.rs` | Audio-track choices and subtitle loading |
+| `crates/ui-egui/src/player/fullscreen_videos.rs` | Continuous fullscreen scrolling, fading controls, and local video grid |
 | `crates/ui-egui/src/player/miniplayer.rs` | Floating player layout, dragging, and resizing |
 | `crates/ui-egui/src/poster.rs` | Desktop thumbnail lookup and bounded poster image loading |
 | `crates/ui-egui/src/thumbnail_cache.rs` | Persistent generated-preview cache |
@@ -78,7 +79,13 @@ or its cross to stop playback. Player controls hide after 2.5 seconds without in
 Hover the progress bar for a timestamp and a thumbnail preview (loaded after a short hover delay).
 Favorites from older libraries become **Liked videos**.
 
-Theater mode includes a scrollable video grid below the movie. F/T/I preserve independent viewing
+Theater mode scrolls the movie and the video grid below it together as one page. F/T/I preserve independent viewing
 preferences. Video boxes follow the source aspect ratio; thumbnails fill their tiles using centered
 cropping instead of stretching. Preview frames are prepared in the background and cached on disk
 for later sessions; first-time preparation still takes time.
+
+In fullscreen, scroll down, click the **More videos** arrow below the progress bar, or press **V**
+to scroll the bottom controls upward and reveal other local videos over the fixed picture.
+The controls fade as one progress-bar image and reappear as you scroll back. Small scrolls
+settle back to the top after a short pause; larger browsing scrolls stay open. Select a thumbnail to switch videos without leaving fullscreen. **V**, the collapse
+button, or **Escape** closes the list; press Escape again to leave fullscreen.

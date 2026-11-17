@@ -16,8 +16,10 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
 };
 
+mod fullscreen_videos;
 mod library;
 mod miniplayer;
+mod seek_paint;
 mod tracks;
 
 pub use library::{load_library, persist, prune_missing_videos, save_library};
@@ -74,6 +76,9 @@ pub struct Runtime {
     play_feedback: Option<(f64, bool)>,
     pending_picture_click: Option<f64>,
     tracks_open: bool,
+    fullscreen_scroll: f32,
+    fullscreen_scroll_target: Option<bool>,
+    fullscreen_scroll_idle_since: Option<f64>,
     audio_menu: bool,
     audio_labels: Vec<String>,
     subtitle_labels: Vec<String>,
@@ -104,6 +109,9 @@ impl Default for Runtime {
             play_feedback: None,
             pending_picture_click: None,
             tracks_open: false,
+            fullscreen_scroll: 0.0,
+            fullscreen_scroll_target: Some(false),
+            fullscreen_scroll_idle_since: None,
             audio_menu: false,
             audio_labels: vec![],
             subtitle_labels: vec![],
@@ -185,6 +193,8 @@ pub fn open(app: &mut FilmcraftApp, item: ItemId) {
     }
     app.stop_source();
     app.player.seek_preview = None;
+    app.player.fullscreen_scroll = 0.0;
+    app.player.fullscreen_scroll_target = Some(false);
     app.player.pending_picture_click = None;
     app.player.play_feedback = None;
     app.player.skip_feedback = None;
@@ -283,6 +293,14 @@ pub fn shortcuts(app: &mut FilmcraftApp, ctx: &egui::Context) {
     if pressed(egui::Key::F) {
         fullscreen(ctx);
     }
+    if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
+        && app.ui.player.page == "watch"
+        && app.session.state.source_item.is_some()
+        && pressed(egui::Key::V)
+    {
+        app.player.fullscreen_scroll_target = Some(app.player.fullscreen_scroll <= 1.0);
+        app.player.pending_picture_click = None;
+    }
     if pressed(egui::Key::M) {
         app.ui.player.muted = !app.ui.player.muted;
     }
@@ -309,7 +327,11 @@ pub fn shortcuts(app: &mut FilmcraftApp, ctx: &egui::Context) {
     }
     if pressed(egui::Key::Escape) {
         app.player.tracks_open = false;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        if app.player.fullscreen_scroll > 1.0 {
+            app.player.fullscreen_scroll_target = Some(false);
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
     }
     let mut delta = 0;
     if pressed(egui::Key::ArrowRight) {
@@ -386,9 +408,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
         && !app.ui.player.miniplayer
         && app.ui.player.page == "watch"
     {
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(Color32::BLACK).inner_margin(0)).show(ui, |ui| watch(app, ui));
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(Color32::BLACK).inner_margin(0)).show(ui, |ui| fullscreen_videos::show(app, ui));
         return;
     }
+    app.player.fullscreen_scroll = 0.0;
+    app.player.fullscreen_scroll_target = Some(false);
     egui::Panel::top("youcraft-header").exact_size(72.0).frame(egui::Frame::new().fill(t.app_bg).inner_margin(egui::Margin::symmetric(20, 16))).show(
         ui,
         |ui| {
@@ -555,31 +579,50 @@ fn video_grid(app: &mut FilmcraftApp, ui: &mut egui::Ui, ids: &[ItemId]) {
     let columns = ((ui.available_width() / 300.0).floor() as usize).clamp(1, 5);
     let width = ((ui.available_width() - 24.0 * (columns - 1) as f32 - 14.0) / columns as f32).max(20.0);
     let row_height = width * 0.5625 + 108.0;
-    let height = if app.ui.player.page == "watch" { 600.0 } else { ui.available_height().max(1.0) };
+    let row_count = ids.len().div_ceil(columns);
+    if app.ui.player.theater && app.ui.player.page == "watch" {
+        // The theater page owns scrolling. Reserve the full grid height, but only create
+        // cards in the parent's visible rows so large libraries remain inexpensive.
+        let stride = row_height + ui.spacing().item_spacing.y;
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), row_count as f32 * stride), Sense::hover());
+        let clip = rect.intersect(ui.clip_rect());
+        if clip.is_positive() {
+            let first = ((clip.top() - rect.top()).max(0.0) / stride).floor() as usize;
+            let end = (((clip.bottom() - rect.top()).max(0.0) / stride).ceil() as usize).min(row_count);
+            let visible = Rect::from_min_max(pos2(rect.left(), rect.top() + first as f32 * stride), rect.max);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(visible), |ui| {
+                video_grid_rows(app, ui, ids, columns, width, row_height, first..end);
+            });
+            app.auto.add("player.grid.viewport", clip, "Video grid");
+        }
+        return;
+    }
     let mut scroll = egui::ScrollArea::vertical();
     if app.player.grid_query != app.ui.player.query {
         app.player.grid_query.clone_from(&app.ui.player.query);
         scroll = scroll.vertical_scroll_offset(0.0);
     }
-    let grid = scroll.max_height(height).auto_shrink([false, false]).id_salt("player-video-grid").show_rows(
+    let grid = scroll.max_height(ui.available_height().max(1.0)).auto_shrink([false, false]).id_salt("player-video-grid").show_rows(
         ui,
         row_height,
-        ids.len().div_ceil(columns),
-        |ui, rows| {
-            for row in rows {
-                ui.horizontal_top(|ui| {
-                    ui.set_min_height(row_height);
-                    for id in ids.iter().skip(row * columns).take(columns) {
-                        ui.allocate_ui_with_layout(vec2(width, row_height - 16.0), egui::Layout::top_down(egui::Align::Min), |ui| {
-                            card(app, ui, *id, width);
-                        });
-                        ui.add_space(14.0);
-                    }
-                });
-            }
-        },
+        row_count,
+        |ui, rows| video_grid_rows(app, ui, ids, columns, width, row_height, rows),
     );
     app.auto.add("player.grid.viewport", grid.inner_rect, "Video grid");
+}
+
+fn video_grid_rows(app: &mut FilmcraftApp, ui: &mut egui::Ui, ids: &[ItemId], columns: usize, width: f32, row_height: f32, rows: std::ops::Range<usize>) {
+    for row in rows {
+        ui.horizontal_top(|ui| {
+            ui.set_min_height(row_height);
+            for id in ids.iter().skip(row.saturating_mul(columns)).take(columns) {
+                ui.allocate_ui_with_layout(vec2(width, row_height - 16.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    card(app, ui, *id, width);
+                });
+                ui.add_space(14.0);
+            }
+        });
+    }
 }
 
 fn card(app: &mut FilmcraftApp, ui: &mut egui::Ui, id: ItemId, width: f32) {
@@ -716,12 +759,20 @@ fn watch(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
         (ui.available_height() - 116.0).max(120.0)
     };
     let size = fitted_video_size(ui.available_width(), max_height, aspect);
-    let (area, _) = ui.allocate_exact_size(vec2(ui.available_width(), size.y), Sense::hover());
+    let (area, _) = ui.allocate_exact_size(vec2(ui.available_width(), if full { max_height } else { size.y }), Sense::hover());
     let picture = Rect::from_center_size(area.center(), size);
+    // Only the transport/list page scrolls; the fullscreen picture stays anchored behind it.
+    let picture = if full { picture.translate(vec2(0.0, app.player.fullscreen_scroll)) } else { picture };
     let response = ui.interact(picture, ui.scope_id().with("video-picture"), Sense::click());
     response.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
     crate::panels::monitor::player_picture(app, ui, picture);
-    picture_gestures(app, ui.ctx(), &response, picture);
+    let transport_enabled = !full || app.player.fullscreen_scroll <= 1.0;
+    if transport_enabled {
+        picture_gestures(app, ui.ctx(), &response, picture);
+    } else {
+        app.player.pending_picture_click = None;
+        app.player.seek_preview = None;
+    }
     let now = app.now();
     let visible = !app.source_playback.clock.playing || now - app.player.last_activity < 2.5 || app.player.tracks_open || app.player.seek_preview.is_some();
     if app.ui.player.captions {
@@ -735,12 +786,23 @@ fn watch(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
         }
     }
     playback_feedback(app, ui, picture);
-    if visible {
-        let controls = Rect::from_min_max(pos2(picture.left(), (picture.bottom() - 96.0).max(picture.top())), picture.max);
-        ui.painter().rect_filled(controls, 0.0, Color32::from_black_alpha(205));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(controls.shrink2(vec2(12.0, 6.0))), |ui| controls_ui(app, ui, id, picture));
+    let opacity = if full { fullscreen_videos::controls_opacity(app.player.fullscreen_scroll, area.height()) } else { 1.0 };
+    if visible && opacity > 0.01 {
+        let control_area = if full { area } else { picture };
+        let controls = Rect::from_min_max(pos2(control_area.left(), (control_area.bottom() - 96.0).max(control_area.top())), control_area.max);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(controls.shrink2(vec2(12.0, 6.0))), |ui| {
+            ui.set_opacity(opacity);
+            if !transport_enabled {
+                ui.disable();
+            }
+            ui.painter().rect_filled(controls, 0.0, Color32::from_black_alpha(205));
+            controls_ui(app, ui, id, picture);
+            if full {
+                fullscreen_videos::more_button(app, ui);
+            }
+        });
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
-    } else if response.hovered() {
+    } else if !visible && response.hovered() && app.player.fullscreen_scroll <= 1.0 {
         ui.ctx().set_cursor_icon(egui::CursorIcon::None);
     }
     tracks::show(app, ui.ctx());
@@ -805,18 +867,12 @@ fn seek_bar_height(ui: &mut egui::Ui, seconds: &mut f64, start: f64, end: f64, h
     let hovering = response.hovered() || response.dragged();
     let height = if hovering { 6.0 } else { 4.0 };
     let rail = Rect::from_center_size(rect.center(), vec2(rect.width(), height));
-    let painter = ui.painter();
-    painter.rect_filled(rail, 0.0, Color32::from_gray(48));
-    if hovering && let Some(pointer) = ui.ctx().pointer_latest_pos() {
-        let hover_x = pointer.x.clamp(rect.left(), rect.right());
-        painter.rect_filled(Rect::from_min_max(rail.min, pos2(hover_x, rail.bottom())), 0.0, Color32::from_gray(145));
-    }
     let fraction = if duration > 0.0 { ((*seconds - start) / duration).clamp(0.0, 1.0) as f32 } else { 0.0 };
     let playhead = rect.left() + fraction * rect.width();
-    let red = Color32::from_rgb(255, 0, 51);
-    painter.rect_filled(Rect::from_min_max(rail.min, pos2(playhead, rail.bottom())), 0.0, red);
+    let hover_x =
+        if hovering { ui.ctx().pointer_latest_pos().map_or(playhead, |pointer| pointer.x.clamp(rect.left(), rect.right()).max(playhead)) } else { playhead };
     let hover_amount = ui.ctx().animate_bool_with_time(response.id.with("seek-dot-hover"), hovering, 0.12);
-    painter.circle_filled(pos2(playhead, rail.center().y), 6.0 + 3.0 * hover_amount, red);
+    seek_paint::paint(ui, rail, playhead, hover_x, 6.0 + 3.0 * hover_amount);
     response
 }
 
@@ -860,27 +916,28 @@ fn controls_ui(app: &mut FilmcraftApp, ui: &mut egui::Ui, id: ItemId, picture: R
     if response.dragged() {
         app.player.seek_preview = Some(seconds);
     }
-    if response.drag_stopped() || (response.changed() && !response.dragged()) {
+    if ui.is_enabled() && (response.drag_stopped() || (response.changed() && !response.dragged())) {
         app.player.seek_preview = None;
         seek(app, Tick::from_seconds_f64(seconds));
     }
     seek_hover_preview(app, ui, id, (view.start.seconds(), end), picture, &response);
+    let compact_fullscreen = ui.ctx().input(|i| i.viewport().fullscreen.unwrap_or(false)) && picture.width() < 900.0;
     ui.horizontal(|ui| {
         let back_label = skip_label(app, -5);
-        if button(app, ui, "player.seek.back", &back_label) {
+        if !compact_fullscreen && button(app, ui, "player.seek.back", &back_label) {
             skip(app, -5);
         }
         if button(app, ui, "player.play", if app.source_playback.clock.playing { "Pause" } else { "Play" }) {
             toggle(app);
         }
         let forward_label = skip_label(app, 5);
-        if button(app, ui, "player.seek.forward", &forward_label) {
+        if !compact_fullscreen && button(app, ui, "player.seek.forward", &forward_label) {
             skip(app, 5);
         }
         if button(app, ui, "player.mute", if app.ui.player.muted { "Unmute" } else { "Mute" }) {
             app.ui.player.muted = !app.ui.player.muted;
         }
-        if ui.available_width() > 420.0 {
+        if !compact_fullscreen && ui.available_width() > 420.0 {
             ui.spacing_mut().slider_width = 70.0;
             let r = ui.add(egui::Slider::new(&mut app.ui.player.volume, 0.0..=2.0).show_value(false).handle_shape(egui::style::HandleShape::Circle));
             let label = format!("Volume: {:.0}%", app.ui.player.volume * 100.0);

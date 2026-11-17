@@ -5,10 +5,20 @@ The desktop entrypoint sets `player.enabled = true`, selecting the viewing shell
 The player follows the existing `app.rs` / `app/` module convention: `player.rs` keeps shared
 viewing state, shell layout, and playback controls; `player/library.rs` owns persistence and
 file-discovery results, `player/tracks.rs` owns audio/subtitle selection, and
-`player/miniplayer.rs` owns the floating view and its gestures. Submodules remain private,
+`player/miniplayer.rs` owns the floating view and its gestures; `player/fullscreen_videos.rs`
+owns the fullscreen browsing page. The picture stays fixed while the transport and virtualized
+video rows scroll over it. Scrolled transport controls are non-interactive. `player/seek_paint.rs`
+flattens the rail and thumb into one bounded cached texture before opacity is applied, preventing
+alpha accumulation at their overlap. Returning to the top restores interaction; small idle scrolls
+settle back automatically. Playback continues while browsing.
+Selection, V, Escape, and the collapse control return to the picture. Submodules remain private,
 with the existing public functions re-exported by `player` for hosts, control handlers, and tests.
 The workspace `rustfmt.toml` and layer checker apply unchanged. Linux thumbnail-cache hashing
 is a Linux-only dependency; embedded image loading remains portable.
+
+The theater watch page owns one vertical scroll area for the picture, details, and related-video
+grid. The grid reserves its full height and renders only visible rows, so wheel input over its
+cards moves the movie with the rest of the page. The standalone library retains its own scroller.
 
 The miniplayer resizes from both inward-facing edges and their shared corner. Hovering these targets shows horizontal, vertical or diagonal double-arrow cursors. Resizing preserves the picture aspect ratio and snapped corner, with a 240 px minimum width (or the available window width on small windows). The chosen width is saved with viewing preferences; `ui.set` accepts `player.mini_width` (1–16384 logical pixels, or null for automatic sizing). Display geometry is constrained to the current window.
 

@@ -476,3 +476,245 @@ fn player_menus_use_fork_identity_and_updates_stay_local() {
     assert!(app.dialog.is_none());
     assert_eq!(serde_json::to_value(&app.session.project).unwrap(), before);
 }
+
+#[test]
+fn theater_scroll_over_grid_moves_picture_and_grid_together() {
+    let mut h = harness(1600.0);
+    for _ in 0..8 {
+        h.state_mut().session.execute("file.importDemoFootage", json!({})).unwrap();
+    }
+    let id = *h.state().session.project.items.keys().next().unwrap();
+    player::open(h.state_mut(), id);
+    h.state_mut().stop_source();
+    h.state_mut().ui.player.theater = true;
+    h.run_steps(4);
+    fn wheel(h: &mut Harness<'_, FilmcraftApp>, position: egui::Pos2, delta: f32) {
+        h.event(egui::Event::PointerMoved(position));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Wheel,
+            delta: egui::vec2(0.0, delta),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(20);
+    }
+    wheel(&mut h, egui::pos2(800.0, 400.0), -650.0);
+    let picture = h.state().auto.find("player.picture").unwrap().rect;
+    let heading = h.state().auto.find("player.theater.grid").unwrap().rect;
+    let grid = h.state().auto.find("player.grid.viewport").unwrap().rect;
+    let position = egui::pos2(grid[0] + grid[2] * 0.5, (grid[1] + 80.0).min(850.0));
+    wheel(&mut h, position, -180.0);
+    let moved_picture = h.state().auto.find("player.picture").unwrap().rect;
+    let moved_heading = h.state().auto.find("player.theater.grid").unwrap().rect;
+    assert!(moved_picture[1] < picture[1] - 100.0, "scrolling over the grid must move the video");
+    assert!(((moved_picture[1] - picture[1]) - (moved_heading[1] - heading[1])).abs() < 1.0);
+    assert!(h.state().auto.query("player.video.").len() < 20, "offscreen grid rows stay virtualized");
+    if let Some(dir) = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR") {
+        let dir = std::path::Path::new(&dir);
+        std::fs::create_dir_all(dir).unwrap();
+        h.render().unwrap().save(dir.join("theater-scrolled.png")).unwrap();
+    }
+}
+
+#[test]
+fn fullscreen_more_videos_browses_without_pausing_and_selects_in_place() {
+    for width in [640.0, 1600.0] {
+        let mut h = harness(width);
+        let id = *h.state().session.project.items.keys().next().unwrap();
+        player::open(h.state_mut(), id);
+        h.state_mut().source_playback.clock.looping = true;
+        h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = Some(true);
+        h.event(egui::Event::PointerMoved(egui::pos2(200.0, 200.0)));
+        h.run_steps(4);
+        fn key(h: &mut Harness<'_, FilmcraftApp>, key: egui::Key) {
+            for pressed in [true, false] {
+                h.event(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+                h.step();
+            }
+            h.run_steps(3);
+        }
+        fn click(h: &mut Harness<'_, FilmcraftApp>, id: &str) {
+            let r = h.state().auto.find(id).unwrap().rect;
+            let pos = egui::pos2(r[0] + r[2] * 0.5, r[1] + r[3] * 0.5);
+            h.event(egui::Event::PointerMoved(pos));
+            h.step();
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+                h.step();
+            }
+            h.run_steps(3);
+        }
+        let more = h.state().auto.find("player.fullscreen.more").unwrap().rect;
+        let seek = h.state().auto.find("player.seek").unwrap().rect;
+        let picture = h.state().auto.find("player.picture").unwrap().rect;
+        assert!(more[1] >= seek[1] + seek[3], "More videos sits below the progress bar");
+        assert!(((more[0] + more[2] * 0.5) - (seek[0] + seek[2] * 0.5)).abs() < 1.0);
+        for control in ["player.play", "player.mute", "player.fullscreen", "player.audio", "player.captions"] {
+            let r = h.state().auto.find(control).unwrap().rect;
+            assert!(
+                more[0] + more[2] <= r[0] || r[0] + r[2] <= more[0] || more[1] + more[3] <= r[1] || r[1] + r[3] <= more[1],
+                "More videos overlaps {control}"
+            );
+        }
+        if let Some(dir) = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR") {
+            let dir = std::path::Path::new(&dir);
+            std::fs::create_dir_all(dir).unwrap();
+            h.render().unwrap().save(dir.join(format!("fullscreen-more-button-{width}.png"))).unwrap();
+        }
+        h.event(egui::Event::PointerMoved(egui::pos2(width * 0.5, 300.0)));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Wheel,
+            delta: egui::vec2(0.0, -120.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(6);
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_some(), "scrolling down reveals more videos");
+        assert!(h.state().source_playback.clock.playing);
+        let moved_seek = h.state().auto.find("player.seek").unwrap().rect;
+        let moved_picture = h.state().auto.find("player.picture").unwrap().rect;
+        let movement = seek[1] - moved_seek[1];
+        assert!(movement > 5.0 && movement <= 125.0, "wheel movement is gradual: {movement}");
+        assert!((picture[1] - moved_picture[1]).abs() < 1.0, "the video stays fixed while transport moves");
+        if width == 1600.0
+            && let Some(dir) = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR")
+        {
+            h.render().unwrap().save(std::path::Path::new(&dir).join("fullscreen-partial-scroll.png")).unwrap();
+        }
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Wheel,
+            delta: egui::vec2(0.0, 120.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(6);
+        assert!((h.state().auto.find("player.seek").unwrap().rect[1] - seek[1]).abs() < 2.0, "reverse scrolling restores the transport");
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_none());
+        click(&mut h, "player.fullscreen.more");
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_some());
+        assert!(h.state().source_playback.clock.playing, "opening the drawer does not pause playback");
+        assert!(h.state().auto.find(&format!("player.video.{}", id.0)).is_none());
+        let cards = h.state().auto.query("player.video.");
+        assert!(!cards.is_empty());
+        for card in &cards {
+            assert!(card.rect[0] >= 0.0 && card.rect[0] + card.rect[2] <= width);
+        }
+        let selected = cards[0].id.clone();
+        let selected_id = selected.strip_prefix("player.video.").unwrap().parse::<u64>().unwrap();
+        if width == 1600.0
+            && let Some(dir) = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR")
+        {
+            let dir = std::path::Path::new(&dir);
+            std::fs::create_dir_all(dir).unwrap();
+            h.render().unwrap().save(dir.join("fullscreen-more-videos.png")).unwrap();
+        }
+        click(&mut h, "player.fullscreen.more.close");
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_none());
+        key(&mut h, egui::Key::V);
+        key(&mut h, egui::Key::Escape);
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_none());
+        assert!(h.input_mut().viewports[&egui::ViewportId::ROOT].fullscreen.unwrap());
+        key(&mut h, egui::Key::V);
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_some());
+        click(&mut h, &selected);
+        assert_eq!(h.state().session.state.source_item.unwrap().0, selected_id);
+        assert!(h.state().source_playback.clock.playing);
+        assert!(h.state().auto.find("player.fullscreen.more.grid").is_none());
+        assert_eq!(h.state().ui.player.page, "watch");
+        assert!(h.input_mut().viewports[&egui::ViewportId::ROOT].fullscreen.unwrap());
+        h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = Some(false);
+        h.run_steps(3);
+        key(&mut h, egui::Key::V);
+        assert!(h.state().auto.find("player.fullscreen.more").is_none());
+        assert!(h.state().ui_error.is_none());
+    }
+}
+
+#[test]
+fn scrolled_fullscreen_transport_does_not_seek_or_toggle_playback() {
+    let mut h = harness(1600.0);
+    let id = *h.state().session.project.items.keys().next().unwrap();
+    player::open(h.state_mut(), id);
+    h.state_mut().stop_source();
+    player::seek(h.state_mut(), Tick::from_seconds_f64(5.0));
+    h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = Some(true);
+    h.run_steps(4);
+    h.event(egui::Event::PointerMoved(egui::pos2(800.0, 400.0)));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        source: egui::MouseWheelSource::Wheel,
+        delta: egui::vec2(0.0, -240.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(6);
+    let before = h.state().session.state.source_playhead;
+    let seek = h.state().auto.find("player.seek").unwrap().rect;
+    let start = egui::pos2(seek[0] + seek[2] * 0.8, seek[1] + seek[3] * 0.5);
+    h.event(egui::Event::PointerMoved(start));
+    h.step();
+    assert!(h.state().auto.find("player.seek.preview").is_none(), "faded rail has no hover preview");
+    h.event(egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.step();
+    let end = start + egui::vec2(80.0, 0.0);
+    h.event(egui::Event::PointerMoved(end));
+    h.step();
+    h.event(egui::Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(6);
+    assert_eq!(h.state().session.state.source_playhead, before);
+    assert!(!h.state().source_playback.clock.playing);
+    if let Some(dir) = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR") {
+        let dir = std::path::Path::new(&dir);
+        std::fs::create_dir_all(dir).unwrap();
+        h.render().unwrap().save(dir.join("fullscreen-disabled-rail.png")).unwrap();
+    }
+    // Returning to the top restores seeking.
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        source: egui::MouseWheelSource::Wheel,
+        delta: egui::vec2(0.0, 500.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(6);
+    let seek = h.state().auto.find("player.seek").unwrap().rect;
+    let pos = egui::pos2(seek[0] + seek[2] * 0.8, seek[1] + seek[3] * 0.5);
+    h.event(egui::Event::PointerMoved(pos));
+    h.step();
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+        h.step();
+    }
+    assert!(h.state().session.state.source_playhead > before);
+}
+
+#[test]
+fn tiny_fullscreen_scroll_settles_back_but_browsing_scroll_stays_open() {
+    let mut h = harness(1600.0);
+    let id = *h.state().session.project.items.keys().next().unwrap();
+    player::open(h.state_mut(), id);
+    h.state_mut().stop_source();
+    h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = Some(true);
+    h.run_steps(4);
+    let initial = h.state().auto.find("player.seek").unwrap().rect;
+    for (delta, should_return) in [(-24.0, true), (-240.0, false)] {
+        h.event(egui::Event::PointerMoved(egui::pos2(800.0, 400.0)));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Wheel,
+            delta: egui::vec2(0.0, delta),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(30);
+        let after = h.state().auto.find("player.seek").unwrap().rect;
+        if should_return {
+            assert!((initial[1] - after[1]).abs() < 1.0, "small scroll returns to full video");
+        } else {
+            assert!(after[1] < initial[1] - 150.0, "larger scroll stays open");
+        }
+    }
+}
