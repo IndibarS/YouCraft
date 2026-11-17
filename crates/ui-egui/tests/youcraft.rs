@@ -718,3 +718,44 @@ fn tiny_fullscreen_scroll_settles_back_but_browsing_scroll_stays_open() {
         }
     }
 }
+
+#[test]
+fn clicking_player_time_toggles_remaining_without_seeking() {
+    let mut h = harness(1600.0);
+    let id = *h.state().session.project.items.keys().next().unwrap();
+    player::open(h.state_mut(), id);
+    h.state_mut().stop_source();
+    player::seek(h.state_mut(), Tick::from_seconds_f64(5.0));
+    h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = Some(true);
+    h.run_steps(4);
+    let before = h.state().session.state.source_playhead;
+    let elapsed = h.state().auto.find("player.time").unwrap().label.clone();
+    assert!(elapsed.starts_with(&format!("0:{:02} / ", before.seconds() as u64)));
+    for remaining in [true, false] {
+        let r = h.state().auto.find("player.time").unwrap().rect;
+        let pos = egui::pos2(r[0] + r[2] * 0.5, r[1] + r[3] * 0.5);
+        h.event(egui::Event::PointerMoved(pos));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        h.run_steps(3);
+        assert_eq!(h.state().ui.player.remaining_time, remaining);
+        let label = &h.state().auto.find("player.time").unwrap().label;
+        assert_eq!(label.starts_with('-'), remaining);
+        if remaining {
+            let total = elapsed.split(" / ").nth(1).unwrap();
+            let (minutes, seconds) = total.split_once(':').unwrap();
+            let duration = minutes.parse::<u64>().unwrap() * 60 + seconds.parse::<u64>().unwrap();
+            let left = (duration as f64 - before.seconds()).max(0.0) as u64;
+            assert_eq!(label, &format!("-{}:{:02} / {total}", left / 60, left % 60));
+        }
+        assert_eq!(label.split(" / ").nth(1), elapsed.split(" / ").nth(1));
+        assert_eq!(h.state().session.state.source_playhead, before);
+        assert!(!h.state().source_playback.clock.playing);
+        if !remaining {
+            assert_eq!(label, &elapsed);
+        }
+    }
+}

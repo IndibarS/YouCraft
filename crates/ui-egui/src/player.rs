@@ -41,6 +41,7 @@ pub struct PlayerState {
     pub theater: bool,
     pub autoplay: bool,
     pub captions: bool,
+    pub remaining_time: bool,
 }
 impl Default for PlayerState {
     fn default() -> Self {
@@ -58,6 +59,7 @@ impl Default for PlayerState {
             theater: false,
             autoplay: true,
             captions: true,
+            remaining_time: false,
         }
     }
 }
@@ -946,7 +948,17 @@ fn controls_ui(app: &mut FilmcraftApp, ui: &mut egui::Ui, id: ItemId, picture: R
             r.on_hover_and_drag_cursor(cursor).on_hover_text(&label);
             ui.label(format!("{:.0}%", app.ui.player.volume * 100.0));
         }
-        ui.label(format!("{} / {}", timestamp(app.session.state.source_playhead), timestamp(view.end)));
+        let time = if app.ui.player.remaining_time {
+            format!("-{}", timestamp((view.end - app.session.state.source_playhead).max(Tick::ZERO)))
+        } else {
+            timestamp(app.session.state.source_playhead)
+        };
+        let label = format!("{time} / {}", timestamp(view.end));
+        let response = ui.add(egui::Label::new(&label).sense(Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
+        app.auto.add_response("player.time", &response, &label);
+        if response.on_hover_text(if app.ui.player.remaining_time { "Show elapsed time" } else { "Show remaining time" }).clicked() {
+            app.ui.player.remaining_time = !app.ui.player.remaining_time;
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if button(app, ui, "player.fullscreen", "Fullscreen (F)") {
                 fullscreen(ui.ctx());
