@@ -41,7 +41,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Freedesktop thumbnail filenames (RFC 1321; pure Rust, MIT OR Apache-2.0).
-md-5 = "0.10"
+md-5 = "0.11"
 
 # Thread/process CPU clocks for frame-job profiling (safe wrappers; see frames.rs).
 [target.'cfg(unix)'.dependencies]
